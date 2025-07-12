@@ -72,11 +72,10 @@ class PDFMerger:
                     validation_errors.append(error_msg)
                     logger.error(f"파일 읽기 오류 ({pdf_path}): {e}")
         
-        # Review Test PDF 파일 확인
-        if config["review_test"]["enabled"]:
-            review_path = config["review_test"]["pdf_path"]
+        # Review Test PDF 파일 확인 (리스트 구조)
+        for review in config.get("review_tests", []):
+            review_path = review["pdf_path"]
             logger.debug(f"Review Test 파일 확인: {review_path}")
-            
             if not review_path:
                 validation_errors.append("Review Test: 파일 경로가 지정되지 않음")
             elif not os.path.exists(review_path):
@@ -86,18 +85,14 @@ class PDFMerger:
                 try:
                     reader = PdfReader(review_path)
                     total_pages = len(reader.pages)
-                    pages_per_unit = config["review_test"]["pages_per_unit"]
+                    pages_per_unit = review["pages_per_unit"]
                     max_units = total_pages // pages_per_unit
-                    
                     logger.debug(f"  - Review Test 총 페이지: {total_pages}, 유닛당 페이지: {pages_per_unit}, 최대 유닛: {max_units}")
-                    
-                    # Review Test가 적용될 유닛들이 범위 내에 있는지 확인
-                    for unit in config["review_test"]["units"]:
+                    for unit in review["units"]:
                         if unit > max_units:
                             warning_msg = f"Review Test: Unit {unit}는 최대 범위({max_units}) 초과"
                             validation_warnings.append(warning_msg)
                             logger.warning(warning_msg)
-                    
                 except Exception as e:
                     error_msg = f"Review Test: PDF 읽기 오류 - {str(e)}"
                     validation_errors.append(error_msg)
@@ -251,34 +246,20 @@ class PDFMerger:
                 self.merge_log.append(f"경고: {warning_msg}")
                 unit_success = False
         
-        # Review Test 추가 (해당 유닛에 설정된 경우)
-        if (config["review_test"]["enabled"] and 
-            unit_number in config["review_test"]["units"]):
-            
-            logger.debug(f"Review Test 추가 - Unit{unit_number}")
-            review_pages_per_unit = config["review_test"].get("pages_per_unit", 2)
-            
-            # Review Test의 유닛 번호 매핑 (Unit 4 → Review 1, Unit 8 → Review 2, ...)
-            review_units = sorted(config["review_test"]["units"])
-            if unit_number in review_units:
-                review_unit_index = review_units.index(unit_number) + 1
-                logger.debug(f"Review Test 매핑: Unit{unit_number} → Review{review_unit_index}")
-                
-                review_pages = self.extract_unit_pages(
-                    config["review_test"]["pdf_path"], 
-                    review_unit_index,  # 매핑된 인덱스 사용
-                    review_pages_per_unit
-                )
-                
-                if review_pages:
-                    for j, page in enumerate(review_pages, 1):
+        # Review Test 추가 (각 구간의 마지막 유닛에만 전체 PDF 추가)
+        for review in config.get("review_tests", []):
+            last_unit = max(review["units"])
+            if unit_number == last_unit:
+                logger.debug(f"Review Test 전체 추가 - Unit{unit_number}")
+                try:
+                    reader = PdfReader(review["pdf_path"])
+                    for j, page in enumerate(reader.pages, 1):
                         writer.add_page(page)
-                        logger.debug(f"    Review Test 페이지 {j}/{len(review_pages)} 추가됨")
-                    
-                    total_pages_added += len(review_pages)
-                    logger.info(f"  - Review Test: {len(review_pages)}페이지 추가 (누적: {total_pages_added}페이지)")
-                else:
-                    warning_msg = f"{unit_name}에서 Review Test 추출 실패"
+                        logger.debug(f"    Review Test 페이지 {j}/{len(reader.pages)} 추가됨")
+                    total_pages_added += len(reader.pages)
+                    logger.info(f"  - Review Test: {len(reader.pages)}페이지 전체 추가 (누적: {total_pages_added}페이지)")
+                except Exception as e:
+                    warning_msg = f"{unit_name}에서 Review Test 전체 추가 실패: {e}"
                     logger.warning(warning_msg)
                     self.merge_log.append(f"경고: {warning_msg}")
                     unit_success = False
@@ -326,7 +307,8 @@ class PDFMerger:
         
         logger.debug(f"총 유닛 수: {config['total_units']}")
         logger.debug(f"카테고리 수: {len(config['categories'])}")
-        logger.debug(f"Review Test 활성화: {config['review_test']['enabled']}")
+        # Review Test 활성화 로그 부분 수정
+        logger.debug(f"Review Test 구간 수: {len(config.get('review_tests', []))}")
         
         if not self.validate_pdf_files(config):
             logger.error("PDF 파일 검증 실패 - 병합 작업 중단")
@@ -380,6 +362,24 @@ class PDFMerger:
         self.save_merge_log()
         
         return success_count == total_units
+    
+    def merge_all_units_to_one(self, total_units: int, output_filename: str = "AllUnits.pdf"):
+        """output_dir 내 UnitXX.pdf를 순서대로 하나로 합쳐 output_filename으로 저장"""
+        from pypdf import PdfReader, PdfWriter
+        writer = PdfWriter()
+        unit_files = [self.output_dir / f"Unit{num:02d}.pdf" for num in range(1, total_units+1)]
+        for unit_file in unit_files:
+            if not unit_file.exists():
+                logger.warning(f"{unit_file} 파일이 존재하지 않아 건너뜀")
+                continue
+            reader = PdfReader(str(unit_file))
+            for page in reader.pages:
+                writer.add_page(page)
+        output_path = self.output_dir / output_filename
+        with open(output_path, 'wb') as f:
+            writer.write(f)
+        logger.info(f"✅ 전체 합본 PDF 저장 완료: {output_path}")
+        print(f"\n[완료] 전체 합본 PDF가 저장되었습니다: {output_path}")
     
     def save_merge_log(self):
         """병합 로그를 파일로 저장"""

@@ -22,6 +22,13 @@ class ConfigManager:
 
         # try 블록 제거, 내부 로직은 그대로 유지
 
+        # 0. 책 제목(폴더명) 입력
+        while True:
+            book_title = input("책 제목(폴더명)을 입력하세요: ").strip()
+            if book_title:
+                break
+            print("책 제목을 입력해주세요.")
+
         # 1. 전체 유닛 수
         while True:
             try:
@@ -108,18 +115,32 @@ class ConfigManager:
 
         # 5. Review Test 설정
         has_review = input("\nReview Test가 있나요? (y/n): ").lower() == 'y'
-        review_units = []
-        review_path = None
-        review_pages_per_unit = 2
+        review_tests = []
+        if has_review:
+            num_review = int(input("Review Test 구간 개수: "))
+            for i in range(num_review):
+                print(f"--- Review Test 구간 {i+1} ---")
+                while True:
+                    unit_range = input("적용할 유닛 범위 (예: 1-4): ")
+                    try:
+                        start, end = map(int, unit_range.split('-'))
+                        break
+                    except Exception:
+                        print("유닛 범위 입력이 올바르지 않습니다. 예: 1-4")
+                pdf_path = input("PDF 파일 경로: ").strip()
+                pages_per_unit = int(input("유닛당 페이지 수(기본 2): ") or 2)
+                review_tests.append({
+                    "units": list(range(start, end+1)),
+                    "pdf_path": pdf_path,
+                    "pages_per_unit": pages_per_unit
+                })
 
         # 최종 config 반환
         return {
+            "book_title": book_title,
             "total_units": total_units,
             "categories": categories,
             "merge_order": merge_order,
             "has_review": has_review,
-            # 아래 값들은 main에서 추가 입력받아 사용
-            # "review_units": review_units,
-            # "review_path": review_path,
-            # "review_pages_per_unit": review_pages_per_unit
+            "review_tests": review_tests
         }
