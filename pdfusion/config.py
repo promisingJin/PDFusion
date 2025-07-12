@@ -8,6 +8,7 @@ import logging
 from typing import Dict
 from pathlib import Path
 import re
+
 from pypdf import PdfReader
 
 logger = logging.getLogger(__name__)
@@ -22,12 +23,15 @@ class ConfigManager:
         logger.info("사용자 입력 모드 시작")
         print("\n=== PDF 병합 설정 ===")
 
+
         # 0. 최상위 폴더 입력
+
         while True:
             root_dir = input("최상위 폴더 경로를 입력하세요: ").strip()
             if os.path.isdir(root_dir):
                 break
             print("폴더 경로가 올바르지 않습니다.")
+
 
         # 1. 책 제목별 하위 폴더 자동 탐색
         book_folders = [f for f in os.listdir(root_dir) if os.path.isdir(os.path.join(root_dir, f))]

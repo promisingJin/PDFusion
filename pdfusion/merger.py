@@ -46,6 +46,7 @@ class PDFMerger:
 
         # 카테고리 PDF 파일 확인
         for category, info in config["categories"].items():
+
             # 유닛별 파일(예: pdf_paths) 지원
             if "pdf_paths" in info:
                 for idx, pdf_path in enumerate(info["pdf_paths"]):
@@ -86,6 +87,7 @@ class PDFMerger:
                         validation_errors.append(error_msg)
                         logger.error(f"파일 읽기 오류 ({pdf_path}): {e}")
         
+
         # Review Test PDF 파일 확인 (리스트 구조)
         for review in config.get("review_tests", []):
             review_path = review["pdf_path"]
@@ -99,11 +101,13 @@ class PDFMerger:
                 try:
                     reader = PdfReader(review_path)
                     total_pages = len(reader.pages)
+
                     expected_total = sum(review["unit_page_lengths"])
                     if total_pages != expected_total:
                         warning_msg = f"Review Test: PDF 총 페이지({total_pages})와 unit_page_lengths 합({expected_total}) 불일치"
                         validation_warnings.append(warning_msg)
                         logger.warning(warning_msg)
+
                 except Exception as e:
                     error_msg = f"Review Test: PDF 읽기 오류 - {str(e)}"
                     validation_errors.append(error_msg)
@@ -195,14 +199,14 @@ class PDFMerger:
         # 병합 순서에 따라 각 카테고리의 페이지 추가
         for i, category in enumerate(config["merge_order"], 1):
             logger.debug(f"[{i}/{len(config['merge_order'])}] 카테고리 '{category}' 처리 중...")
-            
+
             if category not in config["categories"]:
                 warning_msg = f"카테고리 '{category}'를 찾을 수 없음"
                 logger.warning(warning_msg)
                 self.merge_log.append(f"경고: {warning_msg}")
                 self.stats["warnings"] += 1
                 continue
-            
+
             category_info = config["categories"][category]
             pages = self.extract_unit_pages(category_info, unit_number)
             if pages:
@@ -214,9 +218,19 @@ class PDFMerger:
                 logger.info(f"  - {category}: {len(pages)}페이지 추가 (누적: {total_pages_added}페이지)")
             else:
                 warning_msg = f"{unit_name}에서 {category} 추출 실패"
+
                 logger.warning(warning_msg)
                 self.merge_log.append(f"경고: {warning_msg}")
+                self.stats["warnings"] += 1
                 unit_success = False
+                continue
+
+            for j, page in enumerate(pages, 1):
+                writer.add_page(page)
+                logger.debug(f"    페이지 {j}/{len(pages)} 추가됨")
+
+            total_pages_added += len(pages)
+            logger.info(f"  - {category}: {len(pages)}페이지 추가 (누적: {total_pages_added}페이지)")
         
         # Review Test 추가 (각 Review Test의 구간 마지막 유닛에만 해당 Review Test PDF 추가)
         for review in config.get("review_tests", []):

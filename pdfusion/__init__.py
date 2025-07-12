@@ -11,7 +11,6 @@ from .config import ConfigManager
 
 __all__ = ["PDFMerger", "ConfigManager"]
 
-
 def main():
     import logging
     from pathlib import Path
