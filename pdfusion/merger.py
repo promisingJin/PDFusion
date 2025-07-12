@@ -43,25 +43,50 @@ class PDFMerger:
         logger.info("PDF 파일 검증 시작")
         validation_errors = []
         validation_warnings = []
-        
+
         # 카테고리 PDF 파일 확인
         for category, info in config["categories"].items():
-            pdf_path = info["pdf_path"]
-            logger.debug(f"카테고리 '{category}' 파일 확인: {pdf_path}")
 
-            if not os.path.exists(pdf_path):
-                validation_errors.append(f"카테고리 '{category}': 파일을 찾을 수 없음 - {pdf_path}")
-                logger.warning(f"파일 없음: {pdf_path}")
+            # 유닛별 파일(예: pdf_paths) 지원
+            if "pdf_paths" in info:
+                for idx, pdf_path in enumerate(info["pdf_paths"]):
+                    logger.debug(f"카테고리 '{category}' 유닛{idx+1} 파일 확인: {pdf_path}")
+                    if not os.path.exists(pdf_path):
+                        validation_errors.append(f"카테고리 '{category}' 유닛{idx+1}: 파일을 찾을 수 없음 - {pdf_path}")
+                        logger.warning(f"파일 없음: {pdf_path}")
+                    else:
+                        try:
+                            reader = PdfReader(pdf_path)
+                            total_pages = len(reader.pages)
+                            expected_pages = info["unit_page_lengths"][idx]
+                            if total_pages != expected_pages:
+                                warning_msg = f"카테고리 '{category}' 유닛{idx+1}: 파일 페이지 수({total_pages})와 unit_page_lengths({expected_pages}) 불일치"
+                                validation_warnings.append(warning_msg)
+                                logger.warning(f"  - 경고: {warning_msg}")
+                        except Exception as e:
+                            error_msg = f"카테고리 '{category}' 유닛{idx+1}: PDF 읽기 오류 - {str(e)}"
+                            validation_errors.append(error_msg)
+                            logger.error(f"파일 읽기 오류 ({pdf_path}): {e}")
             else:
-                # 파일이 존재하는 경우 페이지 수만 확인 (pages_per_unit 사용 X)
-                try:
-                    reader = PdfReader(pdf_path)
-                    total_pages = len(reader.pages)
-                    logger.debug(f"  - 총 페이지: {total_pages}")
-                except Exception as e:
-                    error_msg = f"카테고리 '{category}': PDF 읽기 오류 - {str(e)}"
-                    validation_errors.append(error_msg)
-                    logger.error(f"파일 읽기 오류 ({pdf_path}): {e}")
+                pdf_path = info["pdf_path"]
+                logger.debug(f"카테고리 '{category}' 파일 확인: {pdf_path}")
+                if not os.path.exists(pdf_path):
+                    validation_errors.append(f"카테고리 '{category}': 파일을 찾을 수 없음 - {pdf_path}")
+                    logger.warning(f"파일 없음: {pdf_path}")
+                else:
+                    try:
+                        reader = PdfReader(pdf_path)
+                        total_pages = len(reader.pages)
+                        expected_total = sum(info["unit_page_lengths"])
+                        if total_pages != expected_total:
+                            warning_msg = f"카테고리 '{category}': PDF 총 페이지({total_pages})와 unit_page_lengths 합({expected_total}) 불일치"
+                            validation_warnings.append(warning_msg)
+                            logger.warning(f"  - 경고: {warning_msg}")
+                    except Exception as e:
+                        error_msg = f"카테고리 '{category}': PDF 읽기 오류 - {str(e)}"
+                        validation_errors.append(error_msg)
+                        logger.error(f"파일 읽기 오류 ({pdf_path}): {e}")
+        
 
         # Review Test PDF 파일 확인 (리스트 구조)
         for review in config.get("review_tests", []):
@@ -76,7 +101,13 @@ class PDFMerger:
                 try:
                     reader = PdfReader(review_path)
                     total_pages = len(reader.pages)
-                    logger.debug(f"  - Review Test 총 페이지: {total_pages}")
+
+                    expected_total = sum(review["unit_page_lengths"])
+                    if total_pages != expected_total:
+                        warning_msg = f"Review Test: PDF 총 페이지({total_pages})와 unit_page_lengths 합({expected_total}) 불일치"
+                        validation_warnings.append(warning_msg)
+                        logger.warning(warning_msg)
+
                 except Exception as e:
                     error_msg = f"Review Test: PDF 읽기 오류 - {str(e)}"
                     validation_errors.append(error_msg)
@@ -128,67 +159,34 @@ class PDFMerger:
         
         return start_index, end_index
     
-    def extract_unit_pages(self, pdf_path: str, unit_number: int, pages_per_unit: int) -> Optional[List]:
+    def extract_unit_pages(self, info: Dict, unit_number: int) -> Optional[List]:
         """
-        PDF에서 특정 유닛의 페이지들 추출
-        
+        PDF에서 특정 유닛의 페이지들 추출 (unit_page_lengths 기반)
         Args:
-            pdf_path: PDF 파일 경로
-            unit_number: 유닛 번호 (사람 기준: 1, 2, 3, ...)
-            pages_per_unit: 유닛당 페이지 수
-            
+            info: 카테고리 정보 dict
+            unit_number: 유닛 번호 (1-based)
         Returns:
             추출된 페이지 객체 리스트 (실패시 None)
         """
-        logger.debug(f"페이지 추출 시작: {pdf_path}, Unit{unit_number}, {pages_per_unit}페이지/유닛")
-        
         try:
-            reader = PdfReader(pdf_path)
-            total_pages = len(reader.pages)
-            logger.debug(f"PDF 총 페이지 수: {total_pages}")
-            
-            # 0-based 인덱스 계산
-            start_index, end_index = self.calculate_page_range(unit_number, pages_per_unit)
-            
-            # 페이지 범위 검증
-            if start_index >= total_pages:
-                error_msg = (f"페이지 범위 초과: {os.path.basename(pdf_path)}에서 Unit{unit_number} "
-                           f"시작 페이지({start_index+1})가 총 페이지({total_pages})를 초과")
-                logger.error(error_msg)
-                self.merge_log.append(f"오류: {error_msg}")
-                self.stats["errors"] += 1
-                return None
-            
-            if end_index > total_pages:
-                # 부분적으로 페이지가 있는 경우
-                available_pages = total_pages - start_index
-                warning_msg = (f"페이지 부족: {os.path.basename(pdf_path)}에서 Unit{unit_number} "
-                             f"({available_pages}/{pages_per_unit}페이지만 사용 가능)")
-                logger.warning(warning_msg)
-                self.merge_log.append(f"경고: {warning_msg}")
-                self.stats["warnings"] += 1
-                end_index = total_pages
-            
-            # 페이지 추출 (0-based 인덱스 사용)
-            pages = []
-            for page_index in range(start_index, end_index):
-                logger.debug(f"페이지 추출 중: 인덱스 {page_index} (사람기준 {page_index+1}페이지)")
-                pages.append(reader.pages[page_index])
-            
-            logger.info(f"    {os.path.basename(pdf_path)} Unit{unit_number}: "
-                       f"{start_index+1}~{end_index}페이지 추출 완료 ({len(pages)}페이지)")
-            return pages
-            
+            if "pdf_paths" in info:
+                # 유닛별 파일
+                pdf_path = info["pdf_paths"][unit_number-1]
+                reader = PdfReader(pdf_path)
+                return list(reader.pages)
+            else:
+                pdf_path = info["pdf_path"]
+                unit_page_lengths = info["unit_page_lengths"]
+                reader = PdfReader(pdf_path)
+                start = sum(unit_page_lengths[:unit_number-1])
+                end = start + unit_page_lengths[unit_number-1]
+                return [reader.pages[i] for i in range(start, end)]
         except Exception as e:
-            error_msg = f"Unit{unit_number} 추출 실패: {str(e)}"
-            logger.error(f"{pdf_path}에서 {error_msg}")
-            logger.debug(f"상세 오류: {traceback.format_exc()}")
-            self.merge_log.append(f"오류: {os.path.basename(pdf_path)}에서 {error_msg}")
-            self.stats["errors"] += 1
+            logger.error(f"extract_unit_pages 오류: {e}")
             return None
     
     def merge_unit_pdf(self, unit_number: int, config: Dict) -> bool:
-        """특정 유닛의 PDF 병합"""
+        """특정 유닛의 PDF 병합 (unit_page_lengths 기반)"""
         writer = PdfWriter()
         unit_name = f"Unit{unit_number:02d}"
         
@@ -210,26 +208,17 @@ class PDFMerger:
                 continue
 
             category_info = config["categories"][category]
-            pdf_path = category_info["pdf_path"]
-            # 자동 분석된 유닛별 페이지 인덱스 사용
-            unit_pages_auto = category_info.get("unit_pages_auto", {})
-            page_indices = unit_pages_auto.get(unit_number, [])
-            if not page_indices:
-                warning_msg = f"{unit_name}: {category}의 Unit{unit_number}에 해당하는 페이지가 없습니다."
-                logger.warning(warning_msg)
-                self.merge_log.append(f"경고: {warning_msg}")
-                self.stats["warnings"] += 1
-                unit_success = False
-                continue
+            pages = self.extract_unit_pages(category_info, unit_number)
+            if pages:
+                for j, page in enumerate(pages, 1):
+                    writer.add_page(page)
+                    logger.debug(f"    페이지 {j}/{len(pages)} 추가됨")
+                
+                total_pages_added += len(pages)
+                logger.info(f"  - {category}: {len(pages)}페이지 추가 (누적: {total_pages_added}페이지)")
+            else:
+                warning_msg = f"{unit_name}에서 {category} 추출 실패"
 
-            logger.debug(f"  - PDF 경로: {pdf_path}")
-            logger.debug(f"  - 유닛별 페이지 인덱스: {page_indices}")
-
-            try:
-                reader = PdfReader(pdf_path)
-                pages = [reader.pages[idx] for idx in page_indices]
-            except Exception as e:
-                warning_msg = f"{unit_name}: {category} PDF 읽기/페이지 추출 오류: {e}"
                 logger.warning(warning_msg)
                 self.merge_log.append(f"경고: {warning_msg}")
                 self.stats["warnings"] += 1
@@ -243,10 +232,10 @@ class PDFMerger:
             total_pages_added += len(pages)
             logger.info(f"  - {category}: {len(pages)}페이지 추가 (누적: {total_pages_added}페이지)")
         
-        # Review Test 추가 (각 구간의 마지막 유닛에만 전체 PDF 추가)
+        # Review Test 추가 (각 Review Test의 구간 마지막 유닛에만 해당 Review Test PDF 추가)
         for review in config.get("review_tests", []):
-            last_unit = max(review["units"])
-            if unit_number == last_unit:
+            # end_unit 기준으로 병합 위치 결정
+            if unit_number == review.get("end_unit", 1):
                 logger.debug(f"Review Test 전체 추가 - Unit{unit_number}")
                 try:
                     reader = PdfReader(review["pdf_path"])
