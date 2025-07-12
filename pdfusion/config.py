@@ -189,7 +189,27 @@ class ConfigManager:
                 return False
             
             def extract_unit_page_lengths(pdf_path):
-                unit_pattern = re.compile(r'unit\s*[\.:∙-]?(\d{1,2})', re.IGNORECASE)
+                # 더 유연한 유닛 패턴: Unit 1, Unit 1-, Unit 1 - 등 다양한 형태 지원
+                # U nit, Un it 등 분리된 형태도 지원
+                unit_pattern = re.compile(r'u\s*n\s*i\s*t\s*[\.:∙-]?\s*(\d{1,2})', re.IGNORECASE)
+                
+                def normalize_text(text):
+                    """PDF 텍스트 정규화: 불필요한 줄바꿈과 공백 제거"""
+                    # 줄바꿈을 공백으로 변환
+                    text = text.replace('\n', ' ')
+                    # 연속된 공백을 하나로
+                    text = re.sub(r'\s+', ' ', text)
+                    # 앞뒤 공백 제거
+                    text = text.strip()
+                    
+                    # "U nit" -> "Unit" 같은 패턴 수정
+                    # 단어 사이의 불필요한 공백 제거 (특히 Unit 패턴)
+                    text = re.sub(r'U\s+n\s*i\s+t', 'Unit', text, flags=re.IGNORECASE)
+                    text = re.sub(r'U\s+nit', 'Unit', text, flags=re.IGNORECASE)
+                    text = re.sub(r'Un\s+it', 'Unit', text, flags=re.IGNORECASE)
+                    text = re.sub(r'Uni\s+t', 'Unit', text, flags=re.IGNORECASE)
+                    
+                    return text
                 try:
                     reader = PdfReader(str(pdf_path))
                     
@@ -214,9 +234,36 @@ class ConfigManager:
                     # 첫 페이지에서 unit 감지 안되고, 두 번째 페이지에서 unit 감지되면 첫 두 페이지를 합쳐 하나의 유닛으로 처리
                     first_unit_found = False
                     for i, page in enumerate(reader.pages[start_page:], start_page):
-                        text = page.extract_text() or ""
+                        raw_text = page.extract_text() or ""
+                        
+                        # 텍스트 추출이 실패한 경우 대안 방법 시도
+                        if not raw_text.strip():
+                            print(f"- {i+1}페이지: 텍스트 추출 실패, 대안 방법 시도...")
+                            # 페이지의 첫 번째 부분을 다시 시도
+                            try:
+                                # 페이지의 상단 부분만 추출 시도
+                                raw_text = page.extract_text() or ""
+                                if not raw_text.strip():
+                                    print(f"  텍스트 추출 완전 실패")
+                                    continue
+                            except Exception as e:
+                                print(f"  텍스트 추출 오류: {e}")
+                                continue
+                        
+                        # 텍스트 정규화
+                        text = normalize_text(raw_text)
                         found = unit_pattern.search(text)
-                        preview = text.replace('\n', ' ')[:80]
+                        preview = text[:80]
+                        
+                        # 더 상세한 디버깅 정보 추가
+                        print(f"- {i+1}페이지: 원본 텍스트 길이={len(raw_text)}")
+                        print(f"  원본 텍스트 (처음 200자): {raw_text[:200]}")
+                        print(f"  정규화된 텍스트 (처음 200자): {text[:200]}")
+                        print(f"  패턴 매칭 결과: {found}")
+                        if found:
+                            print(f"  매칭된 텍스트: '{found.group(0)}'")
+                            print(f"  추출된 유닛 번호: {found.group(1)}")
+                        
                         if found:
                             unit_num = int(found.group(1))
                             if not first_unit_found and i == start_page + 1 and len(unit_indices) == 0:
