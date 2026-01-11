@@ -1,27 +1,22 @@
-#!/usr/bin/env python3
 """
-PDFusion - PDF 자동 병합 프로그램 (ver_5)
-메인 진입점
+PDFusion - Unit별 PDF 자동 병합 도구 (ver_5)
 """
 
-import sys
-from pathlib import Path
+__version__ = "3.0.0"
+__author__ = "Uijin"
+__email__ = ".com"
 
-# 프로젝트 루트를 Python 경로에 추가
-sys.path.insert(0, str(Path(__file__).parent))
+from .merger import PDFMerger
+from .config_v5 import ConfigManagerV5
 
-from pdfusion.config_v5 import ConfigManagerV5
-from pdfusion.merger import PDFMerger
+__all__ = ["PDFMerger", "ConfigManagerV5"]
 
-if __name__ == "__main__":
+
+def main():
     import logging
     from pathlib import Path
-    
     logging.basicConfig(level=logging.INFO)
-    print("\n" + "="*60)
-    print("PDFusion - 유닛별 PDF 자동 병합 도구 (ver_5)")
-    print("="*60)
-    print("[확인] config_v5.py 사용 중\n")
+    print("\nPDFusion - 유닛별 PDF 자동 병합 도구 (ver_5)\n")
 
     config_manager = ConfigManagerV5()
     configs = config_manager.get_user_input()

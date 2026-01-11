@@ -165,12 +165,39 @@ class PDFMerger:
             추출된 페이지 객체 리스트 (실패시 None)
         """
         try:
-            if "pdf_paths" in info:
-                # 유닛별 파일
+            # 여러 파일을 합친 경우 (is_multi_file_combined 플래그 확인)
+            if info.get("is_multi_file_combined", False):
+                # 여러 통합 파일을 합친 경우
+                # unit_number는 전체 유닛 번호 (1-based)
+                unit_index = unit_number - 1  # 0-based 인덱스
+                
+                # 이 유닛이 어느 파일에 속하는지 찾기
+                file_unit_info = info["file_unit_info"]
+                for file_info in file_unit_info:
+                    start_idx = file_info["start_unit_index"]
+                    end_idx = start_idx + file_info["unit_count"]
+                    
+                    if start_idx <= unit_index < end_idx:
+                        # 이 파일에 속함
+                        pdf_path = file_info["pdf_path"]
+                        unit_page_lengths = file_info["unit_page_lengths"]
+                        unit_index_in_file = unit_index - start_idx  # 파일 내 유닛 인덱스
+                        
+                        reader = PdfReader(pdf_path)
+                        start = sum(unit_page_lengths[:unit_index_in_file])
+                        end = start + unit_page_lengths[unit_index_in_file]
+                        return [reader.pages[i] for i in range(start, end)]
+                
+                # 유닛을 찾지 못함
+                logger.error(f"유닛 {unit_number}을 찾을 수 없음 (인덱스: {unit_index})")
+                return None
+            elif "pdf_paths" in info:
+                # 유닛별 파일 (각 파일이 하나의 유닛)
                 pdf_path = info["pdf_paths"][unit_number-1]
                 reader = PdfReader(pdf_path)
                 return list(reader.pages)
             else:
+                # 단일 통합 파일
                 pdf_path = info["pdf_path"]
                 unit_page_lengths = info["unit_page_lengths"]
                 reader = PdfReader(pdf_path)
